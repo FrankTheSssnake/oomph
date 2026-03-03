@@ -9,8 +9,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
@@ -22,23 +22,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.util.lerp
-import com.example.oomph.ui.theme.OomphTheme
-import kotlin.math.absoluteValue
+import com.example.oomph.ui.theme.*
+import kotlinx.coroutines.launch
 
-/**
- * Main Activity for Oof.
- * Implements a modern, gesture-driven UI using Jetpack Compose.
- */
 class MainActivity : ComponentActivity() {
 
     private lateinit var prefs: SharedPreferences
@@ -46,30 +40,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        // Enable edge-to-edge support for a modern immersive look
         enableEdgeToEdge()
         
-        prefs = getSharedPreferences("oof_prefs", Context.MODE_PRIVATE)
+        prefs = getSharedPreferences("oomph_prefs", Context.MODE_PRIVATE)
         
-        // Setup a local detector for UI amplitude feedback
-        impactDetector = ImpactDetector(
-            context = this,
-            threshold = prefs.getFloat("threshold", 5.0f),
-            onImpact = {},
-            onAmplitudeUpdate = {}
-        )
-        
-        // Ensure background service is running
-        startOofService()
+        setupLocalDetector()
+        startOomphService()
 
         setContent {
-            OomphTheme {
+            OomphTheme(darkTheme = true) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
+                    color = Bg
                 ) {
-                    OofAppUI(
+                    OomphAppUI(
                         prefs = prefs,
                         impactDetector = impactDetector
                     )
@@ -78,13 +62,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun startOofService() {
-        val intent = Intent(this, OofService::class.java)
+    private fun startOomphService() {
+        val intent = Intent(this, OomphService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {
             startService(intent)
         }
+    }
+
+    private fun setupLocalDetector() {
+        impactDetector = ImpactDetector(
+            context = this,
+            threshold = prefs.getFloat("threshold", 5.0f),
+            onImpact = {},
+            onAmplitudeUpdate = {}
+        )
     }
 
     override fun onResume() {
@@ -99,23 +92,21 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun OofAppUI(prefs: SharedPreferences, impactDetector: ImpactDetector) {
+fun OomphAppUI(prefs: SharedPreferences, impactDetector: ImpactDetector) {
     var threshold by remember { mutableFloatStateOf(prefs.getFloat("threshold", 5.0f)) }
     var volume by remember { mutableFloatStateOf(prefs.getFloat("volume", 1.0f)) }
     val initialMode = prefs.getString("mode", "pain") ?: "pain"
     
-    // Mode data with names, IDs, and placeholder icons
-    // To finish the UI, replace imageRes with actual high-quality assets in res/drawable
     val modes = listOf(
-        ModeItem("PAIN", "pain", android.R.drawable.ic_dialog_alert),
-        ModeItem("SEXY", "sexy", android.R.drawable.ic_menu_gallery),
-        ModeItem("HALO", "halo", android.R.drawable.btn_star_big_on)
+        ModeItem("SEXY", "sexy", "🔥"),
+        ModeItem("PAIN", "pain", "⚡"),
+        ModeItem("HALO", "halo", "✦")
     )
     
     val initialPageIndex = modes.indexOfFirst { it.id == initialMode }.coerceAtLeast(0)
     val pagerState = rememberPagerState(pageCount = { modes.size }, initialPage = initialPageIndex)
+    val scope = rememberCoroutineScope()
 
-    // Save mode selection to SharedPreferences when the carousel changes
     LaunchedEffect(pagerState.currentPage) {
         prefs.edit().putString("mode", modes[pagerState.currentPage].id).apply()
     }
@@ -125,196 +116,281 @@ fun OofAppUI(prefs: SharedPreferences, impactDetector: ImpactDetector) {
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(vertical = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
-        Text(
-            text = "OOF",
-            fontSize = 64.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 12.sp,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 16.dp)
-        )
-
-        Spacer(modifier = Modifier.height(40.dp))
-
-        // Mode Carousel using HorizontalPager
-        HorizontalPager(
-            state = pagerState,
+        // Machined Device Container
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(300.dp),
-            contentPadding = PaddingValues(horizontal = 64.dp),
-            pageSpacing = 16.dp
-        ) { page ->
-            val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
-            
-            ModeCard(
-                mode = modes[page],
-                modifier = Modifier
-                    .graphicsLayer {
-                        // Smooth scaling and alpha animation for the carousel effect
-                        val scale = lerp(0.85f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
-                        scaleX = scale
-                        scaleY = scale
-                        alpha = lerp(0.4f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
+                .width(340.dp)
+                .background(Panel, RoundedCornerShape(4.dp))
+                .border(1.dp, EdgeLight, RoundedCornerShape(4.dp))
+                .drawBehind {
+                    // Subtle brushed metal effect
+                    for (i in 0 until size.width.toInt() step 3) {
+                        drawLine(
+                            color = Color.White.copy(alpha = 0.012f),
+                            start = Offset(i.toFloat(), 0f),
+                            end = Offset(i.toFloat(), size.height),
+                            strokeWidth = 1f
+                        )
                     }
-            )
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        // Controls Area with Custom Vertical Sliders
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(320.dp)
-                .padding(horizontal = 40.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.Bottom
+                }
+                .padding(vertical = 32.dp, horizontal = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(28.dp)
         ) {
-            VerticalSlider(
-                label = "SENSITIVITY",
-                value = threshold,
-                onValueChange = { 
-                    threshold = it
-                    prefs.edit().putFloat("threshold", it).apply()
-                    impactDetector.setThreshold(it)
-                },
-                valueRange = 1f..25f,
-                displayValue = "%.1fg".format(threshold)
+            // Header
+            Text(
+                text = "OOMPH",
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Black,
+                fontSize = 42.sp,
+                letterSpacing = 12.sp,
+                color = TextMain,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
             )
 
-            VerticalSlider(
-                label = "VOLUME",
-                value = volume,
-                onValueChange = { 
-                    volume = it
-                    prefs.edit().putFloat("volume", it).apply()
-                },
-                valueRange = 0f..1f,
-                displayValue = "${(volume * 100).toInt()}%"
-            )
-        }
-        
-        Spacer(modifier = Modifier.height(32.dp))
-    }
-}
+            // Carousel Section
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .background(InsetBg, RoundedCornerShape(3.dp))
+                        .border(1.dp, EdgeLight.copy(alpha = 0.5f), RoundedCornerShape(3.dp))
+                        .padding(4.dp)
+                ) {
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize()
+                    ) { page ->
+                        val mode = modes[page]
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .background(PanelRaised, RoundedCornerShape(3.dp))
+                                    .border(1.dp, EdgeLight.copy(alpha = 0.3f), RoundedCornerShape(3.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(text = mode.icon, fontSize = 32.sp)
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = mode.name,
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 5.sp,
+                                color = TextMain
+                            )
+                        }
+                    }
+                }
 
-data class ModeItem(val name: String, val id: String, val imageRes: Int)
+                // Nav Controls
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { 
+                            scope.launch { 
+                                val prev = (pagerState.currentPage - 1 + modes.size) % modes.size
+                                pagerState.animateScrollToPage(prev) 
+                            } 
+                        },
+                        modifier = Modifier
+                            .size(36.dp, 28.dp)
+                            .background(PanelRaised, RoundedCornerShape(2.dp))
+                            .border(0.5.dp, EdgeLight, RoundedCornerShape(2.dp))
+                    ) {
+                        Text("◀", color = LabelColor, fontSize = 12.sp)
+                    }
 
-@Composable
-fun ModeCard(mode: ModeItem, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier.fillMaxSize(),
-        shape = RoundedCornerShape(32.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            Image(
-                painter = painterResource(id = mode.imageRes),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-            
-            // Subtle dark gradient overlay to ensure text readability
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        modes.indices.forEach { index ->
+                            Box(
+                                modifier = Modifier
+                                    .size(22.dp, 6.dp)
+                                    .background(
+                                        if (pagerState.currentPage == index) AccentDim else InsetBg,
+                                        RoundedCornerShape(1.dp)
+                                    )
+                                    .border(0.5.dp, EdgeLight, RoundedCornerShape(1.dp))
+                            )
+                        }
+                    }
+
+                    IconButton(
+                        onClick = { 
+                            scope.launch { 
+                                val next = (pagerState.currentPage + 1) % modes.size
+                                pagerState.animateScrollToPage(next) 
+                            } 
+                        },
+                        modifier = Modifier
+                            .size(36.dp, 28.dp)
+                            .background(PanelRaised, RoundedCornerShape(2.dp))
+                            .border(0.5.dp, EdgeLight, RoundedCornerShape(2.dp))
+                    ) {
+                        Text("▶", color = LabelColor, fontSize = 12.sp)
+                    }
+                }
+            }
+
+            // Divider
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)),
-                            startY = 400f
-                        )
-                    )
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(EdgeDark)
             )
-            
-            Text(
-                text = mode.name,
-                color = Color.White,
-                fontSize = 32.sp,
-                fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 32.dp)
-            )
+
+            // Sliders Section
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                MachinedSlider(
+                    modifier = Modifier.weight(1f),
+                    label = "SENSITIVITY",
+                    value = threshold,
+                    onValueChange = {
+                        threshold = it
+                        prefs.edit().putFloat("threshold", it).apply()
+                        impactDetector.setThreshold(it)
+                    },
+                    valueRange = 1f..25f,
+                    displayValue = "%.1fg".format(threshold),
+                    isAccent = false
+                )
+
+                MachinedSlider(
+                    modifier = Modifier.weight(1f),
+                    label = "VOLUME",
+                    value = volume,
+                    onValueChange = {
+                        volume = it
+                        prefs.edit().putFloat("volume", it).apply()
+                    },
+                    valueRange = 0f..1f,
+                    displayValue = "${(volume * 100).toInt()}%",
+                    isAccent = true
+                )
+            }
         }
     }
 }
 
+data class ModeItem(val name: String, val id: String, val icon: String)
+
 @Composable
-fun VerticalSlider(
+fun MachinedSlider(
+    modifier: Modifier = Modifier,
     label: String,
     value: Float,
     onValueChange: (Float) -> Unit,
     valueRange: ClosedFloatingPointRange<Float>,
-    displayValue: String
+    displayValue: String,
+    isAccent: Boolean
 ) {
     Column(
+        modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.fillMaxHeight()
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
             text = label,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp,
-            color = MaterialTheme.colorScheme.secondary
+            fontSize = 9.sp,
+            letterSpacing = 2.sp,
+            color = LabelColor,
+            fontWeight = FontWeight.Bold
         )
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        // Custom interactive vertical bar component
+
         Box(
             modifier = Modifier
-                .width(80.dp)
-                .weight(1f)
-                .clip(RoundedCornerShape(40.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .width(36.dp)
+                .height(140.dp)
+                .background(InsetBg, RoundedCornerShape(2.dp))
+                .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(2.dp))
                 .pointerInput(Unit) {
                     detectTapGestures { offset ->
-                        val percentage = (1f - (offset.y / size.height)).coerceIn(0f, 1f)
-                        val newValue = valueRange.start + (valueRange.endInclusive - valueRange.start) * percentage
-                        onValueChange(newValue)
+                        val pct = 1f - (offset.y / size.height)
+                        onValueChange(valueRange.start + pct * (valueRange.endInclusive - valueRange.start))
                     }
                 }
                 .pointerInput(Unit) {
                     detectVerticalDragGestures { change, _ ->
-                        val dragY = change.position.y
-                        val percentage = (1f - (dragY / size.height)).coerceIn(0f, 1f)
-                        val newValue = valueRange.start + (valueRange.endInclusive - valueRange.start) * percentage
-                        onValueChange(newValue)
+                        val pct = 1f - (change.position.y / size.height)
+                        onValueChange((valueRange.start + pct * (valueRange.endInclusive - valueRange.start)).coerceIn(valueRange))
                     }
                 }
         ) {
             val fillRatio = (value - valueRange.start) / (valueRange.endInclusive - valueRange.start)
             val animatedFill by animateFloatAsState(targetValue = fillRatio, label = "fill")
-            
+
+            // Ticks
+            Column(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .offset(x = 10.dp)
+                    .fillMaxHeight()
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                repeat(7) { i ->
+                    Box(
+                        modifier = Modifier
+                            .width(if (i % 3 == 0) 8.dp else 5.dp)
+                            .height(1.dp)
+                            .background(if (i % 3 == 0) LabelColor else EdgeLight)
+                    )
+                }
+            }
+
+            // Fill
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .fillMaxHeight(animatedFill)
                     .align(Alignment.BottomCenter)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.primary,
-                                MaterialTheme.colorScheme.primaryContainer
+                    .background(if (isAccent) AccentDim else PanelRaised)
+                    .border(0.5.dp, if (isAccent) Accent else EdgeLight, RoundedCornerShape(2.dp))
+            )
+
+            // Thumb
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .offset(y = -(140.dp * animatedFill - 7.dp))
+                    .size(30.dp, 14.dp)
+                    .background(PanelRaised, RoundedCornerShape(1.dp))
+                    .border(0.5.dp, EdgeLight, RoundedCornerShape(1.dp))
+                    .drawBehind {
+                        // Grip lines
+                        for (i in 0 until size.height.toInt() step 3) {
+                            drawLine(
+                                color = Color.White.copy(alpha = 0.07f),
+                                start = Offset(0f, i.toFloat()),
+                                end = Offset(size.width, i.toFloat()),
+                                strokeWidth = 1f
                             )
-                        )
-                    )
+                        }
+                    }
             )
         }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
+
         Text(
             text = displayValue,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onBackground
+            fontSize = 11.sp,
+            color = TextDim,
+            fontWeight = FontWeight.Medium
         )
     }
 }

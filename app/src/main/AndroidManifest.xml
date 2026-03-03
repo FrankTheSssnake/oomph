@@ -18,7 +18,7 @@
         android:theme="@style/Theme.Oomph">
 
         <service
-            android:name=".OofService"
+            android:name=".OomphService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="specialUse">

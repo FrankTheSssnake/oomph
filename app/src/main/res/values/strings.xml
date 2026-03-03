@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Oof</string>
+    <string name="app_name">Oomph</string>
     <string name="intensity_format">Intensity: %.1f</string>
     <string name="amplitude_format">Amplitude: %.2f</string>
     <string name="select_mode">Select Mode</string>
