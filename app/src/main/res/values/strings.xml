@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">Oof</string>
+    <string name="intensity_format">Intensity: %.1f</string>
+    <string name="amplitude_format">Amplitude: %.2f</string>
+    <string name="select_mode">Select Mode</string>
+    <string name="pain">Pain</string>
+    <string name="sexy">Sexy</string>
+    <string name="halo">Halo</string>
+    <string name="sensitivity_threshold">Sensitivity (Threshold)</string>
+    <string name="volume">Volume</string>
+    <string name="show_live_amplitude">Show Live Amplitude</string>
+</resources>
