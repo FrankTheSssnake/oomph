@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -33,14 +34,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.util.lerp
 import com.example.oomph.ui.theme.*
 import kotlinx.coroutines.launch
 
-/**
- * Main Activity for Oomph.
- * Implements a modern, gesture-driven UI with requested assets and styling.
- */
 class MainActivity : ComponentActivity() {
 
     private lateinit var prefs: SharedPreferences
@@ -53,7 +49,11 @@ class MainActivity : ComponentActivity() {
         prefs = getSharedPreferences("oomph_prefs", Context.MODE_PRIVATE)
         
         setupLocalDetector()
-        startOomphService()
+        
+        // Only start if enabled
+        if (prefs.getBoolean("enabled", true)) {
+            startOomphService()
+        }
 
         setContent {
             OomphTheme(darkTheme = true) {
@@ -63,7 +63,10 @@ class MainActivity : ComponentActivity() {
                 ) {
                     OomphAppUI(
                         prefs = prefs,
-                        impactDetector = impactDetector
+                        impactDetector = impactDetector,
+                        onToggleService = { isEnabled ->
+                            if (isEnabled) startOomphService() else stopOomphService()
+                        }
                     )
                 }
             }
@@ -79,6 +82,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun stopOomphService() {
+        stopService(Intent(this, OomphService::class.java))
+    }
+
     private fun setupLocalDetector() {
         impactDetector = ImpactDetector(
             context = this,
@@ -90,7 +97,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        impactDetector.start()
+        if (prefs.getBoolean("enabled", true)) {
+            impactDetector.start()
+        }
     }
 
     override fun onPause() {
@@ -100,11 +109,16 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun OomphAppUI(prefs: SharedPreferences, impactDetector: ImpactDetector) {
+fun OomphAppUI(
+    prefs: SharedPreferences, 
+    impactDetector: ImpactDetector,
+    onToggleService: (Boolean) -> Unit
+) {
+    var isEnabled by remember { mutableStateOf(prefs.getBoolean("enabled", true)) }
     var threshold by remember { mutableFloatStateOf(prefs.getFloat("threshold", 5.0f)) }
     var volume by remember { mutableFloatStateOf(prefs.getFloat("volume", 1.0f)) }
-    val initialMode = prefs.getString("mode", "pain") ?: "pain"
     
+    val initialMode = prefs.getString("mode", "pain") ?: "pain"
     val context = LocalContext.current
     val haloResId = remember {
         val id = context.resources.getIdentifier("halo", "drawable", context.packageName)
@@ -136,6 +150,7 @@ fun OomphAppUI(prefs: SharedPreferences, impactDetector: ImpactDetector) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        // Machined Device Container
         Column(
             modifier = Modifier
                 .width(340.dp)
@@ -151,157 +166,187 @@ fun OomphAppUI(prefs: SharedPreferences, impactDetector: ImpactDetector) {
                         )
                     }
                 }
-                .padding(vertical = 32.dp, horizontal = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(28.dp)
+                .padding(vertical = 24.dp, horizontal = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // Header with freaky font
-            Text(
-                text = "𝓸𝓸𝓶𝓹𝓱",
-                fontFamily = FontFamily.Serif,
-                fontWeight = FontWeight.Black,
-                fontSize = 42.sp,
-                letterSpacing = 2.sp,
-                color = TextMain,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
-
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp)
-                        .background(InsetBg, RoundedCornerShape(3.dp))
-                        .border(1.dp, EdgeLight.copy(alpha = 0.5f), RoundedCornerShape(3.dp))
-                        .padding(4.dp)
-                ) {
-                    HorizontalPager(
-                        state = pagerState,
-                        modifier = Modifier.fillMaxSize()
-                    ) { page ->
-                        val mode = modes[page]
-                        Column(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(72.dp)
-                                    .background(PanelRaised, RoundedCornerShape(3.dp))
-                                    .border(1.dp, EdgeLight.copy(alpha = 0.3f), RoundedCornerShape(3.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (mode.imageRes != null) {
-                                    Image(
-                                        painter = painterResource(id = mode.imageRes),
-                                        contentDescription = null,
-                                        contentScale = ContentScale.Fit,
-                                        modifier = Modifier.fillMaxSize().padding(8.dp)
-                                    )
-                                } else {
-                                    Text(text = mode.icon ?: "", fontSize = 32.sp)
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = mode.name,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 5.sp,
-                                color = TextMain
-                            )
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = { 
-                            scope.launch { 
-                                val prev = (pagerState.currentPage - 1 + modes.size) % modes.size
-                                pagerState.animateScrollToPage(prev) 
-                            } 
-                        },
-                        modifier = Modifier
-                            .size(36.dp, 28.dp)
-                            .background(PanelRaised, RoundedCornerShape(2.dp))
-                            .border(0.5.dp, EdgeLight, RoundedCornerShape(2.dp))
-                    ) {
-                        Text("◀", color = LabelColor, fontSize = 12.sp)
-                    }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        modes.indices.forEach { index ->
-                            Box(
-                                modifier = Modifier
-                                    .size(22.dp, 6.dp)
-                                    .background(
-                                        if (pagerState.currentPage == index) AccentDim else InsetBg,
-                                        RoundedCornerShape(1.dp)
-                                    )
-                                    .border(0.5.dp, EdgeLight, RoundedCornerShape(1.dp))
-                            )
-                        }
-                    }
-
-                    IconButton(
-                        onClick = { 
-                            scope.launch { 
-                                val next = (pagerState.currentPage + 1) % modes.size
-                                pagerState.animateScrollToPage(next) 
-                            } 
-                        },
-                        modifier = Modifier
-                            .size(36.dp, 28.dp)
-                            .background(PanelRaised, RoundedCornerShape(2.dp))
-                            .border(0.5.dp, EdgeLight, RoundedCornerShape(2.dp))
-                    ) {
-                        Text("▶", color = LabelColor, fontSize = 12.sp)
-                    }
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(EdgeDark)
-            )
-
+            // Header Row with Toggle
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(20.dp)
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                MachinedSlider(
-                    modifier = Modifier.weight(1f),
-                    label = "SENSITIVITY",
-                    value = threshold,
-                    onValueChange = {
-                        threshold = it
-                        prefs.edit().putFloat("threshold", it).apply()
-                        impactDetector.setThreshold(it)
-                    },
-                    valueRange = 1f..25f,
-                    displayValue = "%.1fg".format(threshold),
-                    isAccent = false
+                Text(
+                    text = "𝓸𝓸𝓶𝓹𝓱",
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 32.sp,
+                    letterSpacing = 2.sp,
+                    color = if (isEnabled) TextMain else TextDim,
                 )
 
-                MachinedSlider(
-                    modifier = Modifier.weight(1f),
-                    label = "VOLUME",
-                    value = volume,
-                    onValueChange = {
-                        volume = it
-                        prefs.edit().putFloat("volume", it).apply()
+                Switch(
+                    checked = isEnabled,
+                    onCheckedChange = {
+                        isEnabled = it
+                        prefs.edit().putBoolean("enabled", it).apply()
+                        onToggleService(it)
+                        if (it) impactDetector.start() else impactDetector.stop()
                     },
-                    valueRange = 0f..1f,
-                    displayValue = "${(volume * 100).toInt()}%",
-                    isAccent = true
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Accent,
+                        checkedTrackColor = AccentDim,
+                        uncheckedThumbColor = PanelRaised,
+                        uncheckedTrackColor = InsetBg
+                    )
                 )
+            }
+
+            // Main Panel (Visual opacity drops when disabled)
+            Column(
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+                modifier = Modifier.graphicsLayer { alpha = if (isEnabled) 1f else 0.4f }
+            ) {
+                // Carousel Section
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                            .background(InsetBg, RoundedCornerShape(3.dp))
+                            .border(1.dp, EdgeLight.copy(alpha = 0.5f), RoundedCornerShape(3.dp))
+                            .padding(4.dp)
+                    ) {
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.fillMaxSize(),
+                            userScrollEnabled = isEnabled
+                        ) { page ->
+                            val mode = modes[page]
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(72.dp)
+                                        .background(PanelRaised, RoundedCornerShape(3.dp))
+                                        .border(1.dp, EdgeLight.copy(alpha = 0.3f), RoundedCornerShape(3.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (mode.imageRes != null) {
+                                        Image(
+                                            painter = painterResource(id = mode.imageRes),
+                                            contentDescription = null,
+                                            contentScale = ContentScale.Fit,
+                                            modifier = Modifier.fillMaxSize().padding(8.dp)
+                                        )
+                                    } else {
+                                        Text(text = mode.icon ?: "", fontSize = 32.sp)
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = mode.name,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 5.sp,
+                                    color = TextMain
+                                )
+                            }
+                        }
+                    }
+
+                    // Nav Controls
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            enabled = isEnabled,
+                            onClick = { 
+                                scope.launch { 
+                                    val prev = (pagerState.currentPage - 1 + modes.size) % modes.size
+                                    pagerState.animateScrollToPage(prev) 
+                                } 
+                            },
+                            modifier = Modifier
+                                .size(36.dp, 28.dp)
+                                .background(PanelRaised, RoundedCornerShape(2.dp))
+                                .border(0.5.dp, EdgeLight, RoundedCornerShape(2.dp))
+                        ) {
+                            Text("◀", color = if (isEnabled) LabelColor else TextDim, fontSize = 12.sp)
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            modes.indices.forEach { index ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(22.dp, 6.dp)
+                                        .background(
+                                            if (pagerState.currentPage == index) (if (isEnabled) AccentDim else TextDim) else InsetBg,
+                                            RoundedCornerShape(1.dp)
+                                        )
+                                        .border(0.5.dp, EdgeLight, RoundedCornerShape(1.dp))
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            enabled = isEnabled,
+                            onClick = { 
+                                scope.launch { 
+                                    val next = (pagerState.currentPage + 1) % modes.size
+                                    pagerState.animateScrollToPage(next) 
+                                } 
+                            },
+                            modifier = Modifier
+                                .size(36.dp, 28.dp)
+                                .background(PanelRaised, RoundedCornerShape(2.dp))
+                                .border(0.5.dp, EdgeLight, RoundedCornerShape(2.dp))
+                        ) {
+                            Text("▶", color = if (isEnabled) LabelColor else TextDim, fontSize = 12.sp)
+                        }
+                    }
+                }
+
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(EdgeDark))
+
+                // Sliders Section
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(20.dp)
+                ) {
+                    MachinedSlider(
+                        enabled = isEnabled,
+                        modifier = Modifier.weight(1f),
+                        label = "SENSITIVITY",
+                        value = threshold,
+                        onValueChange = {
+                            threshold = it
+                            prefs.edit().putFloat("threshold", it).apply()
+                            impactDetector.setThreshold(it)
+                        },
+                        valueRange = 1f..25f,
+                        displayValue = "%.1fg".format(threshold),
+                        isAccent = false
+                    )
+
+                    MachinedSlider(
+                        enabled = isEnabled,
+                        modifier = Modifier.weight(1f),
+                        label = "VOLUME",
+                        value = volume,
+                        onValueChange = {
+                            volume = it
+                            prefs.edit().putFloat("volume", it).apply()
+                        },
+                        valueRange = 0f..1f,
+                        displayValue = "${(volume * 100).toInt()}%",
+                        isAccent = true
+                    )
+                }
             }
         }
     }
@@ -312,6 +357,7 @@ data class ModeItem(val name: String, val id: String, val icon: String? = null, 
 @Composable
 fun MachinedSlider(
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     label: String,
     value: Float,
     onValueChange: (Float) -> Unit,
@@ -328,7 +374,7 @@ fun MachinedSlider(
             text = label,
             fontSize = 9.sp,
             letterSpacing = 2.sp,
-            color = LabelColor,
+            color = if (enabled) LabelColor else TextDim,
             fontWeight = FontWeight.Bold
         )
 
@@ -338,18 +384,19 @@ fun MachinedSlider(
                 .height(140.dp)
                 .background(InsetBg, RoundedCornerShape(2.dp))
                 .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(2.dp))
-                .pointerInput(Unit) {
-                    detectTapGestures { offset ->
-                        val pct = (1f - (offset.y / size.height)).coerceIn(0f, 1f)
-                        onValueChange(valueRange.start + pct * (valueRange.endInclusive - valueRange.start))
+                .then(if (enabled) {
+                    Modifier.pointerInput(Unit) {
+                        detectTapGestures { offset ->
+                            val pct = (1f - (offset.y / size.height)).coerceIn(0f, 1f)
+                            onValueChange(valueRange.start + pct * (valueRange.endInclusive - valueRange.start))
+                        }
+                    }.pointerInput(Unit) {
+                        detectVerticalDragGestures { change, _ ->
+                            val pct = (1f - (change.position.y / size.height)).coerceIn(0f, 1f)
+                            onValueChange((valueRange.start + pct * (valueRange.endInclusive - valueRange.start)).coerceIn(valueRange))
+                        }
                     }
-                }
-                .pointerInput(Unit) {
-                    detectVerticalDragGestures { change, _ ->
-                        val pct = (1f - (change.position.y / size.height)).coerceIn(0f, 1f)
-                        onValueChange((valueRange.start + pct * (valueRange.endInclusive - valueRange.start)).coerceIn(valueRange))
-                    }
-                }
+                } else Modifier)
         ) {
             val fillPct = ((value - valueRange.start) / (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
             val animatedFill by animateFloatAsState(targetValue = fillPct, label = "fill")
@@ -367,7 +414,7 @@ fun MachinedSlider(
                         modifier = Modifier
                             .width(if (i % 3 == 0) 8.dp else 5.dp)
                             .height(1.dp)
-                            .background(if (i % 3 == 0) LabelColor else EdgeLight)
+                            .background(if (i % 3 == 0) (if (enabled) LabelColor else TextDim) else EdgeLight)
                     )
                 }
             }
@@ -377,8 +424,8 @@ fun MachinedSlider(
                     .fillMaxWidth()
                     .fillMaxHeight(animatedFill)
                     .align(Alignment.BottomCenter)
-                    .background(if (isAccent) AccentDim else PanelRaised)
-                    .border(0.5.dp, if (isAccent) Accent else EdgeLight, RoundedCornerShape(2.dp))
+                    .background(if (enabled) (if (isAccent) AccentDim else PanelRaised) else InsetBg)
+                    .border(0.5.dp, if (enabled && isAccent) Accent else EdgeLight, RoundedCornerShape(2.dp))
             )
 
             Box(
@@ -402,9 +449,9 @@ fun MachinedSlider(
         }
 
         Text(
-            text = displayValue,
+            text = if (enabled) displayValue else "OFF",
             fontSize = 11.sp,
-            color = TextDim,
+            color = if (enabled) TextDim else TextDim.copy(alpha = 0.5f),
             fontWeight = FontWeight.Medium
         )
     }
