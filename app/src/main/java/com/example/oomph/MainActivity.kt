@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -21,18 +22,25 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.util.lerp
 import com.example.oomph.ui.theme.*
 import kotlinx.coroutines.launch
 
+/**
+ * Main Activity for Oomph.
+ * Implements a modern, gesture-driven UI with requested assets and styling.
+ */
 class MainActivity : ComponentActivity() {
 
     private lateinit var prefs: SharedPreferences
@@ -97,11 +105,19 @@ fun OomphAppUI(prefs: SharedPreferences, impactDetector: ImpactDetector) {
     var volume by remember { mutableFloatStateOf(prefs.getFloat("volume", 1.0f)) }
     val initialMode = prefs.getString("mode", "pain") ?: "pain"
     
-    val modes = listOf(
-        ModeItem("SEXY", "sexy", "🔥"),
-        ModeItem("PAIN", "pain", "⚡"),
-        ModeItem("HALO", "halo", "✦")
-    )
+    val context = LocalContext.current
+    val haloResId = remember {
+        val id = context.resources.getIdentifier("halo", "drawable", context.packageName)
+        if (id != 0) id else null
+    }
+
+    val modes = remember(haloResId) {
+        listOf(
+            ModeItem("SEXY", "sexy", icon = "🫦"),
+            ModeItem("PAIN", "pain", icon = "⚡"),
+            ModeItem("HALO", "halo", icon = if (haloResId == null) "✦" else null, imageRes = haloResId)
+        )
+    }
     
     val initialPageIndex = modes.indexOfFirst { it.id == initialMode }.coerceAtLeast(0)
     val pagerState = rememberPagerState(pageCount = { modes.size }, initialPage = initialPageIndex)
@@ -120,14 +136,12 @@ fun OomphAppUI(prefs: SharedPreferences, impactDetector: ImpactDetector) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // Machined Device Container
         Column(
             modifier = Modifier
                 .width(340.dp)
                 .background(Panel, RoundedCornerShape(4.dp))
                 .border(1.dp, EdgeLight, RoundedCornerShape(4.dp))
                 .drawBehind {
-                    // Subtle brushed metal effect
                     for (i in 0 until size.width.toInt() step 3) {
                         drawLine(
                             color = Color.White.copy(alpha = 0.012f),
@@ -140,18 +154,17 @@ fun OomphAppUI(prefs: SharedPreferences, impactDetector: ImpactDetector) {
                 .padding(vertical = 32.dp, horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(28.dp)
         ) {
-            // Header
+            // Header with freaky font
             Text(
-                text = "OOMPH",
-                fontFamily = FontFamily.SansSerif,
+                text = "𝓸𝓸𝓶𝓹𝓱",
+                fontFamily = FontFamily.Serif,
                 fontWeight = FontWeight.Black,
                 fontSize = 42.sp,
-                letterSpacing = 12.sp,
+                letterSpacing = 2.sp,
                 color = TextMain,
                 modifier = Modifier.align(Alignment.CenterHorizontally)
             )
 
-            // Carousel Section
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Box(
                     modifier = Modifier
@@ -178,7 +191,16 @@ fun OomphAppUI(prefs: SharedPreferences, impactDetector: ImpactDetector) {
                                     .border(1.dp, EdgeLight.copy(alpha = 0.3f), RoundedCornerShape(3.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(text = mode.icon, fontSize = 32.sp)
+                                if (mode.imageRes != null) {
+                                    Image(
+                                        painter = painterResource(id = mode.imageRes),
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier.fillMaxSize().padding(8.dp)
+                                    )
+                                } else {
+                                    Text(text = mode.icon ?: "", fontSize = 32.sp)
+                                }
                             }
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
@@ -192,7 +214,6 @@ fun OomphAppUI(prefs: SharedPreferences, impactDetector: ImpactDetector) {
                     }
                 }
 
-                // Nav Controls
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -244,7 +265,6 @@ fun OomphAppUI(prefs: SharedPreferences, impactDetector: ImpactDetector) {
                 }
             }
 
-            // Divider
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -252,7 +272,6 @@ fun OomphAppUI(prefs: SharedPreferences, impactDetector: ImpactDetector) {
                     .background(EdgeDark)
             )
 
-            // Sliders Section
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(20.dp)
@@ -288,7 +307,7 @@ fun OomphAppUI(prefs: SharedPreferences, impactDetector: ImpactDetector) {
     }
 }
 
-data class ModeItem(val name: String, val id: String, val icon: String)
+data class ModeItem(val name: String, val id: String, val icon: String? = null, val imageRes: Int? = null)
 
 @Composable
 fun MachinedSlider(
@@ -321,21 +340,20 @@ fun MachinedSlider(
                 .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(2.dp))
                 .pointerInput(Unit) {
                     detectTapGestures { offset ->
-                        val pct = 1f - (offset.y / size.height)
+                        val pct = (1f - (offset.y / size.height)).coerceIn(0f, 1f)
                         onValueChange(valueRange.start + pct * (valueRange.endInclusive - valueRange.start))
                     }
                 }
                 .pointerInput(Unit) {
                     detectVerticalDragGestures { change, _ ->
-                        val pct = 1f - (change.position.y / size.height)
+                        val pct = (1f - (change.position.y / size.height)).coerceIn(0f, 1f)
                         onValueChange((valueRange.start + pct * (valueRange.endInclusive - valueRange.start)).coerceIn(valueRange))
                     }
                 }
         ) {
-            val fillRatio = (value - valueRange.start) / (valueRange.endInclusive - valueRange.start)
-            val animatedFill by animateFloatAsState(targetValue = fillRatio, label = "fill")
+            val fillPct = ((value - valueRange.start) / (valueRange.endInclusive - valueRange.start)).coerceIn(0f, 1f)
+            val animatedFill by animateFloatAsState(targetValue = fillPct, label = "fill")
 
-            // Ticks
             Column(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
@@ -354,7 +372,6 @@ fun MachinedSlider(
                 }
             }
 
-            // Fill
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -364,7 +381,6 @@ fun MachinedSlider(
                     .border(0.5.dp, if (isAccent) Accent else EdgeLight, RoundedCornerShape(2.dp))
             )
 
-            // Thumb
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -373,7 +389,6 @@ fun MachinedSlider(
                     .background(PanelRaised, RoundedCornerShape(1.dp))
                     .border(0.5.dp, EdgeLight, RoundedCornerShape(1.dp))
                     .drawBehind {
-                        // Grip lines
                         for (i in 0 until size.height.toInt() step 3) {
                             drawLine(
                                 color = Color.White.copy(alpha = 0.07f),
